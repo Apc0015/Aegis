@@ -1,0 +1,13 @@
+identity:
+  agent_id: general_agent
+  name: General Knowledge Agent
+  role: specialist
+  domain: general
+  version: '1.0'
+  created_at: 1774634771.217612
+capabilities: []
+experience: {}
+learned_patterns: []
+recent_learnings: []
+mistakes_to_avoid: []
+collaboration_history: []

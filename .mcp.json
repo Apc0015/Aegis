@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "/Library/Frameworks/Python.framework/Versions/3.13/bin/code-review-graph",
+      "args": [
+        "serve"
+      ]
+    }
+  }
+}

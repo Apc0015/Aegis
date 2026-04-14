@@ -1,0 +1,13 @@
+identity:
+  agent_id: exec_agent
+  name: Executive Agent
+  role: specialist
+  domain: exec
+  version: '1.0'
+  created_at: 1774634771.2169821
+capabilities: []
+experience: {}
+learned_patterns: []
+recent_learnings: []
+mistakes_to_avoid: []
+collaboration_history: []

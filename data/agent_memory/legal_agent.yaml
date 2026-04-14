@@ -1,0 +1,13 @@
+identity:
+  agent_id: legal_agent
+  name: Legal & Compliance Agent
+  role: specialist
+  domain: legal
+  version: '1.0'
+  created_at: 1774634771.212499
+capabilities: []
+experience: {}
+learned_patterns: []
+recent_learnings: []
+mistakes_to_avoid: []
+collaboration_history: []

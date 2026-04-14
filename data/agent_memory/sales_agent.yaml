@@ -1,0 +1,13 @@
+identity:
+  agent_id: sales_agent
+  name: Sales Department Agent
+  role: specialist
+  domain: sales
+  version: '1.0'
+  created_at: 1774634771.213612
+capabilities: []
+experience: {}
+learned_patterns: []
+recent_learnings: []
+mistakes_to_avoid: []
+collaboration_history: []

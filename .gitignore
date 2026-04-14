@@ -1,0 +1,35 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Data & indexes (user-generated, not source code)
+data/chroma/
+data/chats/
+data/*.pkl
+data/faiss/
+data/projects.json
+data/settings.json
+data/*.db
+data/audit/
+
+# Flutter build artifacts
+rapid_flutter/.dart_tool/
+rapid_flutter/build/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE / tooling
+.vscode/
+.claude/

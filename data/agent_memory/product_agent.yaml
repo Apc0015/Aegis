@@ -1,0 +1,13 @@
+identity:
+  agent_id: product_agent
+  name: Product Department Agent
+  role: specialist
+  domain: product
+  version: '1.0'
+  created_at: 1774634771.216185
+capabilities: []
+experience: {}
+learned_patterns: []
+recent_learnings: []
+mistakes_to_avoid: []
+collaboration_history: []

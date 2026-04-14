@@ -1,0 +1,88 @@
+# RAPID runtime model configuration
+#
+# Copy this file to config.yaml and edit provider/model values as needed.
+# Environment variables (RAPID_* keys) can override any field.
+
+rag_system:
+  main_llm:
+    provider: "openai"         # openai | anthropic | ollama | groq | google | azure | openrouter | lm_studio
+    model: "gpt-4o"
+    temperature: 0.7
+    max_tokens: 2000
+
+  evaluator_llm:
+    provider: "openai"         # must use a different model than main_llm
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    max_tokens: 1000
+
+  embeddings:
+    provider: "openai"         # openai | ollama | cohere | google | azure
+    model: "text-embedding-3-small"
+
+privacy_mode: "cloud"          # cloud | local | hybrid
+domain: "legal"                # general | legal | hr_policy | technical | ...
+
+
+# -------------------------------------------------------------------
+# Example: Local Privacy (Ollama-only)
+# -------------------------------------------------------------------
+# rag_system:
+#   main_llm:
+#     provider: "ollama"
+#     model: "llama3.2"
+#   evaluator_llm:
+#     provider: "ollama"
+#     model: "llama3.2:1b"
+#   embeddings:
+#     provider: "ollama"
+#     model: "nomic-embed-text"
+# privacy_mode: "local"
+
+
+# -------------------------------------------------------------------
+# Example: Cloud Quality (OpenAI + Anthropic)
+# -------------------------------------------------------------------
+# rag_system:
+#   main_llm:
+#     provider: "openai"
+#     model: "gpt-4o"
+#   evaluator_llm:
+#     provider: "anthropic"
+#     model: "claude-3-haiku-20240307"
+#   embeddings:
+#     provider: "openai"
+#     model: "text-embedding-3-large"
+# privacy_mode: "cloud"
+
+
+# -------------------------------------------------------------------
+# Example: Hybrid (Local LLM + Cloud Embeddings)
+# -------------------------------------------------------------------
+# rag_system:
+#   main_llm:
+#     provider: "ollama"
+#     model: "llama3.2"
+#   evaluator_llm:
+#     provider: "ollama"
+#     model: "qwen2.5:7b"
+#   embeddings:
+#     provider: "openai"
+#     model: "text-embedding-3-small"
+# privacy_mode: "hybrid"
+
+
+# -------------------------------------------------------------------
+# Example: Budget mode (Groq fast inference)
+# -------------------------------------------------------------------
+# rag_system:
+#   main_llm:
+#     provider: "groq"
+#     model: "llama-3.3-70b-versatile"
+#   evaluator_llm:
+#     provider: "groq"
+#     model: "llama-3.1-8b-instant"
+#   embeddings:
+#     provider: "openai"
+#     model: "text-embedding-3-small"
+# privacy_mode: "cloud"

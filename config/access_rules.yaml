@@ -1,0 +1,83 @@
+# RAPID Access Rules
+# Loaded once at startup. Defines role-based access to documents and database columns.
+
+roles:
+  employee:
+    description: "Standard employee — HR policies and own records only"
+    allowed_document_categories:
+      - policies
+      - benefits
+      - handbook
+      - onboarding
+    blocked_document_categories:
+      - compensation_details
+      - performance_reviews
+    db_column_rules:
+      employees:
+        employee_id: ALLOW
+        full_name: ALLOW
+        department: ALLOW
+        job_title: ALLOW
+        employment_type: ALLOW
+        start_date: ALLOW
+        salary: BLOCK
+        salary_grade: ANONYMIZE
+        ssn: BLOCK
+        personal_email: BLOCK
+        manager_id: ALLOW
+        status: ALLOW
+      leave_requests:
+        request_id: ALLOW
+        employee_id: ALLOW
+        leave_type: ALLOW
+        start_date: ALLOW
+        end_date: ALLOW
+        days_requested: ALLOW
+        status: ALLOW
+        approved_by: ALLOW
+        notes: BLOCK
+      benefits:
+        ALL: ALLOW
+      headcount_summary:
+        ALL: BLOCK
+      policies:
+        ALL: ALLOW
+
+  manager:
+    description: "Team manager — team data and anonymized compensation"
+    allowed_document_categories:
+      - policies
+      - benefits
+      - handbook
+      - onboarding
+      - management_guides
+    db_column_rules:
+      employees:
+        employee_id: ALLOW
+        full_name: ALLOW
+        department: ALLOW
+        job_title: ALLOW
+        employment_type: ALLOW
+        start_date: ALLOW
+        salary: ANONYMIZE
+        salary_grade: ALLOW
+        ssn: BLOCK
+        personal_email: BLOCK
+        manager_id: ALLOW
+        status: ALLOW
+      leave_requests:
+        ALL: ALLOW
+      benefits:
+        ALL: ALLOW
+      headcount_summary:
+        ALL: ALLOW
+      policies:
+        ALL: ALLOW
+
+  hr_admin:
+    description: "HR administrator — full access to all data"
+    allowed_document_categories:
+      - ALL
+    db_column_rules:
+      ALL_TABLES:
+        ALL: ALLOW
