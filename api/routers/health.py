@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.dependencies import get_agent
-from rapid import __version__
+from aegis import __version__
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/health", tags=["health"])
@@ -30,7 +30,7 @@ async def health_check(
     agent = Depends(get_agent),
 ):
     """
-    Check connectivity to all RAPID subsystems.
+    Check connectivity to all Aegis subsystems.
     Returns overall status and per-component health.
     """
     issues = []
@@ -38,23 +38,23 @@ async def health_check(
     # Check vector store
     vector_ok = True
     try:
-        agent.r3.vector._client.list_collections()
+        agent.r3.vector.list_projects()
     except Exception as e:
         vector_ok = False
         issues.append(f"Vector store: {e}")
         logger.warning(f"Health check — vector store error: {e}")
 
-    # Check HR database
+    # Check database
     db_ok = True
     try:
-        import sqlite3
-        from rapid.database.hr_database import DB_PATH as HR_DB_PATH
-        with sqlite3.connect(HR_DB_PATH) as conn:
-            conn.execute("SELECT 1")
+        from aegis.core.db_pipeline import get_readonly_connection
+        conn = get_readonly_connection()
+        conn.execute("SELECT 1")
+        conn.close()
     except Exception as e:
         db_ok = False
-        issues.append(f"HR DB: {e}")
-        logger.warning(f"Health check — HR DB error: {e}")
+        issues.append(f"DB: {e}")
+        logger.warning(f"Health check — DB error: {e}")
 
     overall = "ok" if not issues else ("degraded" if vector_ok else "error")
 

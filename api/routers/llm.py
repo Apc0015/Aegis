@@ -8,7 +8,7 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
@@ -17,20 +17,31 @@ router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
 @router.get("/models")
 async def list_models(
     provider: str = Query(..., description="openrouter or ollama"),
-    api_key: Optional[str] = Query(None, description="API key (required for openrouter)"),
+    api_key: Optional[str] = Query(
+        None,
+        description="DEPRECATED — send the key in the X-Provider-Key header instead. "
+        "Query-string keys end up in server/proxy access logs.",
+    ),
+    x_provider_key: Optional[str] = Header(None, alias="X-Provider-Key"),
 ):
     """
     Returns available models for the given provider.
 
     - openrouter: fetches https://openrouter.ai/api/v1/models and returns free models
-      (pricing.prompt == "0"). Requires api_key.
+      (pricing.prompt == "0"). Send the key via the X-Provider-Key header.
     - ollama: fetches http://localhost:11434/api/tags and returns installed models.
       Returns empty list with a message if Ollama is not running.
 
     Returns: {"models": [{"id": "...", "name": "..."}]}
     """
+    key = x_provider_key or api_key or ""
+    if api_key and not x_provider_key:
+        logger.warning(
+            "llm/models called with api_key in the query string — deprecated; "
+            "use the X-Provider-Key header (query params are logged by servers/proxies)"
+        )
     if provider == "openrouter":
-        return await _fetch_openrouter_models(api_key or "")
+        return await _fetch_openrouter_models(key)
     elif provider == "ollama":
         return await _fetch_ollama_models()
     else:
@@ -38,7 +49,7 @@ async def list_models(
 
 
 async def _fetch_openrouter_models(api_key: str) -> dict:
-    headers = {"User-Agent": "RAPID/1.0"}
+    headers = {"User-Agent": "Aegis/1.0"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 

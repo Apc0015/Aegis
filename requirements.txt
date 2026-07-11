@@ -3,7 +3,7 @@ openai>=1.30.0
 anthropic>=0.18.0
 tiktoken>=0.7.0
 nltk>=3.8.0
-chromadb>=0.5.0
+faiss-cpu>=1.7.4
 pypdf>=4.0.0
 python-docx>=1.1.0
 python-dotenv>=1.0.0
@@ -15,7 +15,8 @@ rank-bm25>=0.2.2
 bm25s>=0.1.9
 
 # Web search (no API key required)
-duckduckgo-search>=5.3.0
+# ddgs is the maintained successor of duckduckgo-search
+ddgs>=9.0.0
 
 # Async
 nest-asyncio>=1.6.0
@@ -23,9 +24,30 @@ nest-asyncio>=1.6.0
 # FastAPI backend
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# PyJWT replaces python-jose (unmaintained, known CVEs)
+PyJWT>=2.8.0
+bcrypt>=4.0.0
 python-multipart>=0.0.9
+httpx>=0.27.0
+cachetools>=5.3.0
+
+# Media pipeline (in-chat file processing — text, image, audio)
+pdfplumber>=0.11.0
+openpyxl>=3.1.0
+pandas>=2.0.0
+Pillow>=10.0.0
+# openai-whisper>=20231117  # optional: local audio transcription (heavy, install separately)
+
+# External connectors (local disk, Gmail, Google Drive, OneDrive)
+watchdog>=4.0.0
+google-api-python-client>=2.130.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+msal>=1.28.0
+
+# Tests
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
 
 # Semantic query classification
 sentence-transformers>=2.3.1

@@ -1,0 +1,116 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Aegis design tokens — OKLCH channel triples (L C H), wrapped with an alpha
+  channel in tailwind.config.js so opacity utilities (bg-accent/15) work.
+  Dark, restrained, control-room precision. Faint cool tint on hue 265.
+*/
+:root {
+  color-scheme: dark;
+
+  --bg: 0.165 0.008 265;
+  --surface: 0.202 0.009 265;
+  --card: 0.224 0.010 265;
+  --elevated: 0.262 0.011 265;
+  --border: 0.30 0.012 265;
+  --border-strong: 0.37 0.014 265;
+
+  --ink: 0.972 0.006 265;
+  --ink-muted: 0.745 0.013 265;
+  --ink-faint: 0.60 0.013 265;
+
+  --accent: 0.685 0.155 264;
+  --accent-strong: 0.735 0.155 264;
+  --accent-ink: 0.165 0.02 265;
+
+  --success: 0.76 0.145 158;
+  --warning: 0.83 0.135 78;
+  --danger: 0.665 0.185 18;
+
+  --ring: 0.70 0.16 264;
+
+  --radius: 0.625rem;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  border-color: oklch(var(--border));
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: oklch(var(--bg));
+  color: oklch(var(--ink));
+  font-family: "Inter Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Faint control-room glow — depth without decoration. */
+  background-image: radial-gradient(
+    1200px 600px at 50% -10%,
+    oklch(var(--accent) / 0.06),
+    transparent 70%
+  );
+  background-attachment: fixed;
+}
+
+/* Refined, unobtrusive scrollbars. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--border-strong));
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(var(--ink-faint) / 0.5);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(var(--border-strong)) transparent;
+}
+
+:focus-visible {
+  outline: none;
+}
+
+::selection {
+  background: oklch(var(--accent) / 0.28);
+  color: oklch(var(--ink));
+}
+
+/* Numeric data reads better tabular. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

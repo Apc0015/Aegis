@@ -1,31 +1,20 @@
-# RAPID Access Rules
+# Aegis Access Rules — Medical Enterprise Edition
 # Loaded once at startup. Defines role-based access to documents and database columns.
 
 roles:
   employee:
-    description: "Standard employee — HR policies and own records only"
+    description: "Standard employee — policies and own records only; no patient PII or payroll"
     allowed_document_categories:
       - policies
-      - benefits
       - handbook
       - onboarding
+      - compliance
     blocked_document_categories:
       - compensation_details
-      - performance_reviews
+      - patient_records
+      - financial_reports
     db_column_rules:
-      employees:
-        employee_id: ALLOW
-        full_name: ALLOW
-        department: ALLOW
-        job_title: ALLOW
-        employment_type: ALLOW
-        start_date: ALLOW
-        salary: BLOCK
-        salary_grade: ANONYMIZE
-        ssn: BLOCK
-        personal_email: BLOCK
-        manager_id: ALLOW
-        status: ALLOW
+      # Own leave requests — full access
       leave_requests:
         request_id: ALLOW
         employee_id: ALLOW
@@ -35,47 +24,113 @@ roles:
         days_requested: ALLOW
         status: ALLOW
         approved_by: ALLOW
-        notes: BLOCK
-      benefits:
-        ALL: ALLOW
-      headcount_summary:
+        submitted_at: ALLOW
+        approved_at: ALLOW
+        rejection_reason: ALLOW
+        notes: ALLOW
+      # Employee record — own details, NO salary
+      employees:
+        employee_id: ALLOW
+        department_id: ALLOW
         ALL: BLOCK
-      policies:
+      # Payroll — BLOCK all salary/financial columns
+      payroll:
+        payroll_id: ALLOW
+        employee_id: ALLOW
+        pay_period_start: ALLOW
+        pay_period_end: ALLOW
+        gross_salary: BLOCK
+        federal_tax: BLOCK
+        state_tax: BLOCK
+        social_security: BLOCK
+        medicare: BLOCK
+        health_insurance_deduction: BLOCK
+        other_deductions: BLOCK
+        net_pay: BLOCK
+        payment_date: ALLOW
+        payment_method: ALLOW
+        status: ALLOW
+      # Patient PII — BLOCK all columns entirely
+      patient_pii:
+        ALL: BLOCK
+      # Medical records — BLOCK patient_id, anonymize confidential flag
+      medical_records:
+        record_id: ALLOW
+        patient_id: BLOCK
+        record_date: ALLOW
+        doctor_id: BLOCK
+        appointment_id: ALLOW
+        diagnosis: ALLOW
+        icd_codes: ALLOW
+        treatment_plan: ALLOW
+        medications_prescribed: ALLOW
+        notes: BLOCK
+        is_confidential: ALLOW
+      # HIPAA logs — BLOCK entirely for employees
+      hipaa_access_logs:
+        ALL: BLOCK
+      # Departments — reference data, allow all
+      departments:
+        ALL: ALLOW
+      # Medical facilities — reference data, allow all
+      medical_facilities:
         ALL: ALLOW
 
   manager:
-    description: "Team manager — team data and anonymized compensation"
+    description: "Team manager — team data and anonymized compensation; no raw patient PII"
     allowed_document_categories:
       - policies
-      - benefits
       - handbook
       - onboarding
       - management_guides
+      - compliance
     db_column_rules:
+      # Can see all employee fields except SSN; salary is anonymized
       employees:
+        ALL: ALLOW
+      payroll:
+        payroll_id: ALLOW
         employee_id: ALLOW
-        full_name: ALLOW
-        department: ALLOW
-        job_title: ALLOW
-        employment_type: ALLOW
-        start_date: ALLOW
-        salary: ANONYMIZE
-        salary_grade: ALLOW
-        ssn: BLOCK
-        personal_email: BLOCK
-        manager_id: ALLOW
+        pay_period_start: ALLOW
+        pay_period_end: ALLOW
+        gross_salary: ALLOW
+        federal_tax: ANONYMIZE
+        state_tax: ANONYMIZE
+        social_security: ANONYMIZE
+        medicare: ANONYMIZE
+        health_insurance_deduction: ANONYMIZE
+        other_deductions: ANONYMIZE
+        net_pay: ANONYMIZE
+        payment_date: ALLOW
+        payment_method: ALLOW
         status: ALLOW
       leave_requests:
         ALL: ALLOW
-      benefits:
+      # Patient PII — BLOCK all columns
+      patient_pii:
+        ALL: BLOCK
+      # Medical records — patient_id anonymized
+      medical_records:
+        record_id: ALLOW
+        patient_id: ANONYMIZE
+        record_date: ALLOW
+        doctor_id: ALLOW
+        appointment_id: ALLOW
+        diagnosis: ALLOW
+        icd_codes: ALLOW
+        treatment_plan: ALLOW
+        medications_prescribed: ALLOW
+        notes: ALLOW
+        is_confidential: ALLOW
+      departments:
         ALL: ALLOW
-      headcount_summary:
+      medical_facilities:
         ALL: ALLOW
-      policies:
-        ALL: ALLOW
+      hipaa_access_logs:
+        ALL: BLOCK
 
-  hr_admin:
-    description: "HR administrator — full access to all data"
+  admin:
+    description: "Administrator — full access to all tables and columns"
     allowed_document_categories:
       - ALL
     db_column_rules:

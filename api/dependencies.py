@@ -1,19 +1,22 @@
 """
 Shared FastAPI dependencies:
-  - get_agent()      — returns the singleton MasterAgent
-  - require_admin()  — 403 if role is not admin
+  - get_agent()             — returns the singleton MasterAgent
+  - get_conversation_store() — returns the singleton ConversationStore
+  - get_connector_manager() — returns the singleton ConnectorManager
+  - require_admin()         — 403 if role is not admin
   - require_manager_or_above() — 403 if role is employee
 """
 import logging
-from functools import lru_cache
 from fastapi import Depends, HTTPException, status
 
 from api.auth import UserInfo, get_current_user
+from aegis.core.conversation_store import ConversationStore
 
 logger = logging.getLogger(__name__)
 
-# ── Singleton MasterAgent ──────────────────────────────────────────────────────
 _agent = None
+_conversation_store: ConversationStore = ConversationStore()
+_connector_manager = None
 
 
 def set_agent(agent) -> None:
@@ -32,7 +35,24 @@ def get_agent():
     return _agent
 
 
-# ── RBAC guards ────────────────────────────────────────────────────────────────
+def get_conversation_store() -> ConversationStore:
+    return _conversation_store
+
+
+def set_connector_manager(mgr) -> None:
+    global _connector_manager
+    _connector_manager = mgr
+
+
+def get_connector_manager():
+    if _connector_manager is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Connector manager not initialized",
+        )
+    return _connector_manager
+
+
 async def require_admin(current_user: UserInfo = Depends(get_current_user)) -> UserInfo:
     if current_user.user_role != "admin":
         raise HTTPException(

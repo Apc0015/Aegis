@@ -1,7 +1,7 @@
-# Environment / secrets
+# ── Secrets ───────────────────────────────────────────────────────────────────
 .env
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -11,25 +11,30 @@ venv/
 *.egg-info/
 dist/
 build/
+.mypy_cache/
+.ruff_cache/
 
-# Data & indexes (user-generated, not source code)
-data/chroma/
+# ── Runtime data (generated at runtime, not source code) ─────────────────────
+data/faiss/
+data/bm25/
+data/audit/
+data/audit.db
+data/hr_database.db
 data/chats/
 data/*.pkl
-data/faiss/
 data/projects.json
 data/settings.json
-data/*.db
-data/audit/
+data/connector_tokens/
+data/connector_state.json
 
-# Flutter build artifacts
-rapid_flutter/.dart_tool/
-rapid_flutter/build/
+# Agent memory is source-controlled (intentional YAML scaffolds)
+# data/agent_memory/  ← NOT gitignored
 
-# macOS
+# ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 **/.DS_Store
 
-# IDE / tooling
+# ── IDE / tooling ─────────────────────────────────────────────────────────────
 .vscode/
+.idea/
 .claude/

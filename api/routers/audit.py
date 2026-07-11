@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────────
 class AuditRecord(BaseModel):
     id: int
     timestamp: str
@@ -44,7 +43,6 @@ class AuditRecord(BaseModel):
     columns_anonymized: Optional[str] = None
 
 
-# ── Get recent audit records ───────────────────────────────────────────────────
 @router.get("", response_model=List[AuditRecord])
 async def get_audit_log(
     limit: int = 200,
@@ -62,10 +60,9 @@ async def get_audit_log(
     except Exception as e:
         logger.error(f"Failed to fetch audit log: {e}")
         from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"Could not fetch audit log: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch audit log")
 
 
-# ── Export audit as CSV ────────────────────────────────────────────────────────
 @router.post("/export")
 async def export_audit_csv(
     limit: int = 10000,
@@ -81,22 +78,32 @@ async def export_audit_csv(
     except Exception as e:
         logger.error(f"Failed to export audit log: {e}")
         from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"Could not export audit log: {e}")
+        raise HTTPException(status_code=500, detail="Could not export audit log")
 
     if not records:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="No audit records found")
+
+    def _defuse(value):
+        """
+        Neutralize CSV/Excel formula injection: audit rows contain verbatim user
+        query text, and a cell starting with = + - @ executes as a formula when
+        the export is opened in a spreadsheet. Prefix with ' to force text.
+        """
+        if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+            return "'" + value
+        return value
 
     def generate_csv():
         output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=records[0].keys())
         writer.writeheader()
         for row in records:
-            writer.writerow(row)
+            writer.writerow({k: _defuse(v) for k, v in row.items()})
         yield output.getvalue()
 
     return StreamingResponse(
         generate_csv(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=rapid_audit_export.csv"},
+        headers={"Content-Disposition": "attachment; filename=aegis_audit_export.csv"},
     )

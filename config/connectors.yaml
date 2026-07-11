@@ -1,0 +1,149 @@
+# ── Aegis Connector Configuration ─────────────────────────────────────────────
+#
+# Configure external data sources per department.
+# All sources feed into the same FAISS + BM25 indexing pipeline.
+#
+# OAuth credentials are set via environment variables (not here):
+#   AEGIS_GOOGLE_CLIENT_ID / AEGIS_GOOGLE_CLIENT_SECRET
+#   AEGIS_GOOGLE_REDIRECT_URI   (default: http://localhost:8000/api/v1/connectors/google/callback)
+#   AEGIS_MICROSOFT_CLIENT_ID / AEGIS_MICROSOFT_TENANT_ID
+#   AEGIS_MICROSOFT_REDIRECT_URI (default: http://localhost:8000/api/v1/connectors/onedrive/callback)
+#
+# Sync schedule: every 15 minutes (automatic) + live watchdog for local paths
+# ──────────────────────────────────────────────────────────────────────────────
+
+connectors:
+
+  hr:
+    local:
+      enabled: false
+      path: /mnt/nas/hr-documents      # absolute path to folder
+      watch: true                      # live watchdog (in addition to 15-min scan)
+    gmail:
+      enabled: false
+      labels:                          # Gmail label names to monitor
+        - HR-Docs
+        - Policy-Updates
+        - Benefits
+    gdrive:
+      enabled: false
+      folder_id: ""                    # Google Drive folder ID (from URL)
+    onedrive:
+      enabled: false
+      folder_id: ""                    # OneDrive item ID (from Graph API)
+
+  finance:
+    local:
+      enabled: false
+      path: /mnt/nas/finance-documents
+      watch: true
+    gmail:
+      enabled: false
+      labels:
+        - Finance-Docs
+        - Invoices
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  engineering:
+    local:
+      enabled: false
+      path: /mnt/nas/engineering-docs
+      watch: true
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  sales:
+    local:
+      enabled: false
+      path: /mnt/nas/sales-docs
+      watch: false
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  marketing:
+    local:
+      enabled: false
+      path: /mnt/nas/marketing-docs
+      watch: false
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  legal:
+    local:
+      enabled: false
+      path: /mnt/nas/legal-docs
+      watch: true
+    gmail:
+      enabled: false
+      labels:
+        - Legal-Docs
+        - Contracts
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  it:
+    local:
+      enabled: false
+      path: /mnt/nas/it-docs
+      watch: false
+    gdrive:
+      enabled: false
+      folder_id: ""
+
+  operations:
+    local:
+      enabled: false
+      path: /mnt/nas/operations-docs
+      watch: false
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""
+
+  product:
+    local:
+      enabled: false
+      path: /mnt/nas/product-docs
+      watch: false
+    gdrive:
+      enabled: false
+      folder_id: ""
+
+  customer_success:
+    local:
+      enabled: false
+      path: /mnt/nas/cs-docs
+      watch: false
+    gmail:
+      enabled: false
+      labels:
+        - Customer-Docs
+    gdrive:
+      enabled: false
+      folder_id: ""
+    onedrive:
+      enabled: false
+      folder_id: ""

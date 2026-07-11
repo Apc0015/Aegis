@@ -6,28 +6,80 @@ POST   /api/v1/documents/upload       — upload & index files (multipart)
 DELETE /api/v1/documents/{doc_id}     — remove document from vector + BM25 index
 """
 import logging
+import os
 import uuid
 from typing import List
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 
 from api.auth import UserInfo, get_current_user
 from api.dependencies import get_agent
-from rapid.services.document_processor import DocumentProcessor
-from rapid.services.embedding_service import EmbeddingService
-from rapid.services.vector_store_service import VectorStoreService
-from rapid.services.bm25_engine import BM25Engine
-from rapid.config import RAG_MODES, MAX_FILE_SIZE_MB, SUPPORTED_FILE_TYPES
+from aegis.services.document_processor import DocumentProcessor
+from aegis.config import RAG_MODES, MAX_FILE_SIZE_MB, SUPPORTED_FILE_TYPES, DEPT_TO_RAG_MODE
+from aegis.core.department_router import DEPARTMENT_KEYWORDS
+from aegis.security import InvalidProjectId, sanitize_project_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
+
+# Department project ids that are subject to role-based access. Custom
+# user-created projects (not in this set) are open workspaces.
+_KNOWN_DEPARTMENTS = set(DEPARTMENT_KEYWORDS.keys()) | {"general"}
+
+
+def _safe_project_id(raw: str) -> str:
+    try:
+        return sanitize_project_id(raw)
+    except InvalidProjectId as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+def _authorize_department_access(agent, user: UserInfo, project_id: str) -> None:
+    """
+    Block non-admin document operations on department indexes their role cannot
+    read. Without this, any employee could upload into (poison) or enumerate the
+    legal/finance index that RBAC blocks them from querying. Custom projects are
+    exempt — they are user workspaces, not governed departments.
+    """
+    if project_id not in _KNOWN_DEPARTMENTS:
+        return
+    allowed, denied = agent.rbac.authorize_departments(user.user_role, [project_id])
+    if denied:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your role does not have access to the '{project_id}' department",
+        )
+
+
+def _seed_r1_prototypes(project_id: str, text_sample: str, filename: str) -> None:
+    """Write/update data/domain_prototypes/{project_id}.json with a text sample."""
+    import json, os
+    from aegis.agents.r1_classifier import R1Classifier
+    try:
+        proto_dir = "data/domain_prototypes"
+        os.makedirs(proto_dir, exist_ok=True)
+        proto_path = os.path.join(proto_dir, f"{project_id}.json")
+        existing = {}
+        if os.path.exists(proto_path):
+            with open(proto_path) as f:
+                existing = json.load(f)
+        # Use R1 to classify the sample and record domain -> sample sentence
+        classifier = R1Classifier()
+        domain, _, confidence = classifier.classify(text_sample[:2000], filename=filename, project_id="")
+        if confidence >= 0.4 and domain not in ("multi", "general"):
+            # Store first 200 chars of sample as prototype for this domain
+            existing[domain] = text_sample[:200].replace("\n", " ").strip()
+            with open(proto_path, "w") as f:
+                json.dump(existing, f, indent=2)
+            logger.info(f"R1 prototype seeded: project={project_id} domain={domain} conf={confidence:.2f}")
+    except Exception as e:
+        logger.warning(f"R1 prototype seeding failed for project '{project_id}': {e}")
 
 _processor = DocumentProcessor()
 ALLOWED_EXTENSIONS = set(SUPPORTED_FILE_TYPES + ["md"])
 
 
-# ── Pydantic schemas ───────────────────────────────────────────────────────────
 class DocumentInfo(BaseModel):
     doc_id: str
     filename: str
@@ -39,6 +91,7 @@ class UploadResult(BaseModel):
     doc_id: str
     filename: str
     chunks_created: int
+    status: str = "indexed"
     message: str
 
 
@@ -47,12 +100,16 @@ class DeleteResult(BaseModel):
     message: str
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 def _safe_slug(name: str) -> str:
     """Create a filesystem/collection-safe slug from filename."""
     import re
     base = name.rsplit(".", 1)[0]
     return re.sub(r"[^a-z0-9_]", "_", base.lower())[:48]
+
+
+# Hard ceiling on extracted text per document. A 50MB text file would otherwise
+# turn into thousands of embedding calls on the synchronous upload path.
+MAX_EXTRACT_CHARS = int(os.getenv("AEGIS_MAX_EXTRACT_CHARS", "2000000"))
 
 
 async def _ingest_file(
@@ -61,14 +118,24 @@ async def _ingest_file(
     project_id: str,
     rag_mode: str,
     agent,
+    seed_prototypes: bool = False,
 ) -> UploadResult:
     """Extract, chunk, embed, and index a single document."""
     doc_id = f"{_safe_slug(filename)}_{uuid.uuid4().hex[:8]}"
-    mode = RAG_MODES.get(rag_mode, RAG_MODES["general"])
+    # rag_mode may be a department id ("finance", "engineering") — map it to its
+    # RAG_MODES key so per-domain chunking applies instead of silently falling
+    # back to "general" on the naming mismatch.
+    mode_key = rag_mode if rag_mode in RAG_MODES else DEPT_TO_RAG_MODE.get(rag_mode, "general")
+    mode = RAG_MODES[mode_key]
 
     text = _processor.extract_text(file_bytes, filename)
     if not text.strip():
         raise ValueError(f"No extractable text found in '{filename}'")
+    if len(text) > MAX_EXTRACT_CHARS:
+        logger.warning(
+            f"'{filename}' extracted {len(text):,} chars — truncating to {MAX_EXTRACT_CHARS:,}"
+        )
+        text = text[:MAX_EXTRACT_CHARS]
 
     texts, metas = _processor.chunk(
         text,
@@ -79,10 +146,14 @@ async def _ingest_file(
         domain=rag_mode,
     )
 
+    if seed_prototypes:
+        _seed_r1_prototypes(project_id, text, filename)
+
     # Embed all chunks
     embeddings = await agent.r3.embeddings.embed_batch(texts)
 
-    # Upsert into vector store
+    # Upsert into vector store — defer disk writes until all chunks are added,
+    # then flush once (avoids O(n²) full-index rewrites during ingestion).
     for i, (chunk_text, meta, emb) in enumerate(zip(texts, metas, embeddings)):
         agent.r3.vector.upsert(
             project_id=project_id,
@@ -91,7 +162,9 @@ async def _ingest_file(
             text=chunk_text,
             embedding=emb,
             metadata={**meta, "project_id": project_id},
+            persist=False,
         )
+    agent.r3.vector.flush(project_id)
 
     # Add to BM25 index
     agent.r3.bm25.add_documents(project_id, texts, metas)
@@ -104,7 +177,6 @@ async def _ingest_file(
     )
 
 
-# ── List documents ─────────────────────────────────────────────────────────────
 @router.get("", response_model=List[DocumentInfo])
 async def list_documents(
     project_id: str,
@@ -112,40 +184,32 @@ async def list_documents(
     agent = Depends(get_agent),
 ):
     """Return list of documents indexed in the given project."""
-    if not project_id.strip():
-        raise HTTPException(status_code=422, detail="project_id cannot be empty")
+    project_id = _safe_project_id(project_id)
+    _authorize_department_access(agent, current_user, project_id)
 
     try:
-        bm25_index = agent.r3.bm25._load_index(project_id)
-    except Exception:
-        return []
+        docs = agent.r3.bm25.list_documents(project_id)
+    except Exception as e:
+        logger.error(f"Failed to list documents for project '{project_id}': {e}")
+        raise HTTPException(status_code=500, detail="Could not list documents")
 
-    if not bm25_index:
-        return []
-
-    # Derive unique filenames from BM25 metadata
-    sources_seen: dict[str, DocumentInfo] = {}
-    for meta in bm25_index.get("metadatas", []):
-        source = meta.get("source", "unknown")
-        doc_id = meta.get("doc_id", source)
-        if source not in sources_seen:
-            sources_seen[source] = DocumentInfo(
-                doc_id=doc_id,
-                filename=source,
-                project_id=project_id,
-                chunks_count=0,
-            )
-        sources_seen[source].chunks_count += 1
-
-    return list(sources_seen.values())
+    return [
+        DocumentInfo(
+            doc_id=doc["doc_id"],
+            filename=doc["filename"],
+            project_id=project_id,
+            chunks_count=doc["chunks_count"],
+        )
+        for doc in docs
+    ]
 
 
-# ── Upload documents ───────────────────────────────────────────────────────────
 @router.post("/upload", response_model=List[UploadResult])
 async def upload_documents(
     project_id: str = Form(...),
     rag_mode: str = Form("general"),
     files: List[UploadFile] = File(...),
+    async_ingest: bool = Query(False, description="Enqueue ingestion via ARQ instead of processing inline"),
     current_user: UserInfo = Depends(get_current_user),
     agent = Depends(get_agent),
 ):
@@ -153,9 +217,13 @@ async def upload_documents(
     Upload and index one or more documents.
     Supports: pdf, docx, txt, md.
     Max file size: MAX_FILE_SIZE_MB MB per file.
+
+    Pass ?async_ingest=true to offload heavy ingestion to the ARQ worker.
+    Returns status="queued" with a job_id that can be polled via GET /jobs/{job_id}.
+    Falls back to synchronous ingestion if ARQ/Redis is unavailable.
     """
-    if not project_id.strip():
-        raise HTTPException(status_code=422, detail="project_id cannot be empty")
+    project_id = _safe_project_id(project_id)
+    _authorize_department_access(agent, current_user, project_id)
     if not files:
         raise HTTPException(status_code=422, detail="No files provided")
 
@@ -176,10 +244,33 @@ async def upload_documents(
             errors.append(f"'{filename}': file too large ({size_mb:.1f} MB, max {MAX_FILE_SIZE_MB} MB)")
             continue
 
+        # ── Async path ──────────────────────────────────────────────────────
+        if async_ingest:
+            try:
+                from aegis.tasks.worker import enqueue_ingest
+                job_id = await enqueue_ingest(content, filename, project_id, rag_mode)
+            except Exception as e:
+                logger.warning(f"async_ingest enqueue failed for '{filename}': {e}; falling back to sync")
+                job_id = None
+
+            if job_id is not None:
+                results.append(UploadResult(
+                    doc_id=job_id,
+                    filename=filename,
+                    chunks_created=0,
+                    status="queued",
+                    message=f"Ingestion queued (job_id={job_id}). Poll GET /api/v1/documents/jobs/{job_id} for status.",
+                ))
+                logger.info(f"Queued ingest job {job_id} for '{filename}' (project={project_id})")
+                continue
+            # fall through to synchronous ingest if enqueue returned None
+
+        # ── Synchronous path (default, or async fallback) ───────────────────
         try:
-            result = await _ingest_file(content, filename, project_id, rag_mode, agent)
+            result = await _ingest_file(content, filename, project_id, rag_mode, agent, seed_prototypes=True)
             results.append(result)
             logger.info(f"Indexed '{filename}' → {result.chunks_created} chunks (project={project_id})")
+            logger.info(f"Upload response: {result.model_dump()}")
         except Exception as e:
             logger.error(f"Failed to index '{filename}': {e}")
             errors.append(f"'{filename}': {e}")
@@ -194,7 +285,16 @@ async def upload_documents(
     return results
 
 
-# ── Delete document ────────────────────────────────────────────────────────────
+@router.get("/jobs/{job_id}")
+async def get_ingest_job_status(
+    job_id: str,
+    current_user: UserInfo = Depends(get_current_user),
+):
+    """Check status of an async ingest job enqueued via ?async_ingest=true."""
+    from aegis.tasks.worker import get_job_status
+    return await get_job_status(job_id)
+
+
 @router.delete("/{doc_id}", response_model=DeleteResult)
 async def delete_document(
     doc_id: str,
@@ -204,13 +304,18 @@ async def delete_document(
 ):
     """
     Remove a document from the vector store and BM25 index.
-    Requires manager or admin role.
+    Requires a role with the can_delete_docs capability (RBAC_ROLES config).
     """
-    if current_user.user_role == "employee":
+    # Enforce the configured capability instead of a hardcoded role check —
+    # config says only admins may delete (manager: can_delete_docs=False).
+    if not agent.rbac.can_delete_docs(current_user.user_role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Manager or admin role required to delete documents",
+            detail="Your role does not have document deletion permission",
         )
+
+    project_id = _safe_project_id(project_id)
+    _authorize_department_access(agent, current_user, project_id)
 
     try:
         agent.r3.vector.delete_by_source(project_id, doc_id)
@@ -219,7 +324,7 @@ async def delete_document(
         logger.error(f"Failed to delete doc '{doc_id}' from project '{project_id}': {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Deletion failed: {e}",
+            detail="Deletion failed",
         )
 
     return DeleteResult(doc_id=doc_id, message=f"Document '{doc_id}' removed from project '{project_id}'")
