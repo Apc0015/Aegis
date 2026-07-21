@@ -19,7 +19,7 @@ React + TypeScript frontend for the Aegis enterprise RAG backend.
 | `/chat` | Streaming chat (SSE) with project + RAG-mode selectors, source chips, confidence / routing / firewall badges |
 | `/dashboard` | Live health, project count, and recent audit activity (admin) |
 | `/documents` | Drag-and-drop upload (PDF/DOCX/TXT/MD), per-project document list, delete (manager+) |
-| `/projects` | List and create FAISS/BM25 projects |
+| `/projects` | List and create Qdrant/BM25 projects |
 | `/audit` | Audit log table with search/filter + CSV export (admin) |
 | `/admin` | Users, connector status, and access-rules viewer (admin) |
 | `/settings` | Live backend config + model browser (OpenRouter / Ollama) |

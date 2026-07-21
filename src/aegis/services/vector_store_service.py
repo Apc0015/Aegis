@@ -1,96 +1,110 @@
-import logging
-import json
+import os
 import re
+import uuid
+import logging
 import threading
-import numpy as np
-import faiss
 from typing import List, Dict, Optional
-from pathlib import Path
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
 
 logger = logging.getLogger(__name__)
 
 # Defense-in-depth: routers sanitize project_id, but the service must also refuse
-# anything that could escape persist_dir (path separators, "..", etc.).
+# anything unsafe before it becomes a Qdrant collection name.
 _SAFE_ID_RE = re.compile(r"^_?[a-zA-Z0-9][a-zA-Z0-9_\-]{0,62}$")
+
+# Collection prefix keeps Aegis's collections namespaced within a shared Qdrant.
+_PREFIX = "aegis_"
+
+# Deterministic point-id namespace so re-ingesting the same chunk UPDATES the
+# point in place instead of creating a duplicate (FAISS appended duplicates).
+_ID_NAMESPACE = uuid.UUID("a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
 
 
 class VectorStoreService:
     """
-    FAISS-based vector store with per-project index isolation.
-    Each project gets a separate FAISS index stored on disk.
+    Qdrant-backed vector store with per-project collection isolation.
 
-    Thread-safety: a re-entrant lock serializes all index mutation and search.
-    FAISS indexes and the parallel metadata list are NOT safe for concurrent
-    mutate+search — an interleaved upsert during a query can misalign FAISS row
-    ids with metadata positions and silently return the wrong chunks.
+    Each project (department, document workspace, or ephemeral chat session) maps
+    to a Qdrant collection named ``aegis_<project_id>``. The public interface is
+    unchanged from the previous FAISS implementation, so nothing downstream had to
+    change — this is a storage swap, not an API change.
 
-    Cross-process freshness: the on-disk index mtime is checked on each access,
-    so indexes written by another process (e.g. the ARQ ingest worker) are
-    reloaded instead of served stale from the in-memory cache.
+    Deployment modes (chosen by ``AEGIS_QDRANT_URL`` / the ``url`` arg):
+      * **Embedded** (default) — a local, file-backed Qdrant at ``persist_dir``.
+        Zero infrastructure; ideal for laptops, the demo, and single-process runs.
+        NOTE: embedded Qdrant locks its storage to ONE process. Run the API and
+        the ingest worker against a Qdrant *server* if you need both at once.
+      * **Server** — set ``AEGIS_QDRANT_URL`` (e.g. ``http://qdrant:6333``). The
+        client is safe for concurrent processes; this is the production setup and
+        what docker-compose wires up.
+
+    Distance metric is Euclidean (``Distance.EUCLID``) to match the prior
+    ``IndexFlatL2`` behaviour; scores are converted to a ``1/(1+distance)``
+    similarity so downstream fusion/scoring see the same shape. (Cosine is a
+    reasonable future tuning knob — a one-line change here.)
+
+    Thread-safety: a re-entrant lock serialises collection creation and the
+    per-project write buffer. Qdrant itself handles concurrent reads/writes.
     """
 
-    def __init__(self, persist_dir: str = "data/faiss", dimension: int = 1536):
-        self.persist_dir = Path(persist_dir)
+    def __init__(
+        self,
+        persist_dir: str = "data/qdrant",
+        dimension: int = 1536,
+        url: Optional[str] = None,
+    ):
         self.dimension = dimension
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self._indexes = {}  # in-memory cache: project_id -> (index, metadata_list)
-        self._mtimes: Dict[str, float] = {}  # project_id -> index file mtime at load
+        self._url = (url or os.getenv("AEGIS_QDRANT_URL", "")).strip() or None
         self._lock = threading.RLock()
+        self._ensured: set = set()          # collections verified/created this process
+        self._buffers: Dict[str, List[PointStruct]] = {}  # project_id -> pending points
 
-    def _get_index_path(self, project_id: str) -> tuple:
-        """Returns (index_path, metadata_path) for a project."""
+        if self._url:
+            api_key = os.getenv("AEGIS_QDRANT_API_KEY") or None
+            self._client = QdrantClient(url=self._url, api_key=api_key, prefer_grpc=False)
+            logger.info(f"VectorStoreService: connected to Qdrant server at {self._url}")
+        else:
+            from pathlib import Path
+            Path(persist_dir).mkdir(parents=True, exist_ok=True)
+            self._client = QdrantClient(path=persist_dir)
+            logger.info(f"VectorStoreService: embedded Qdrant at {persist_dir}")
+
+    # ── naming / collection lifecycle ─────────────────────────────────────────
+
+    def _collection(self, project_id: str) -> str:
         if not _SAFE_ID_RE.match(project_id or ""):
             raise ValueError(f"Unsafe project_id for vector store: {project_id!r}")
         safe_id = project_id.replace("-", "_")[:63]
-        return (
-            self.persist_dir / f"aegis_{safe_id}.index",
-            self.persist_dir / f"aegis_{safe_id}_meta.json",
-        )
+        return f"{_PREFIX}{safe_id}"
 
-    def _load_or_create_index(self, project_id: str):
-        """
-        Load FAISS index from disk, or create new one if it doesn't exist.
-        Reloads from disk if the file changed since we cached it (another
-        process — e.g. the ingest worker — may have written it).
-        """
-        index_path, meta_path = self._get_index_path(project_id)
-
+    def _ensure_collection(self, project_id: str) -> str:
+        col = self._collection(project_id)
         with self._lock:
-            if project_id in self._indexes:
-                disk_mtime = index_path.stat().st_mtime if index_path.exists() else None
-                if disk_mtime is None or disk_mtime == self._mtimes.get(project_id):
-                    return self._indexes[project_id]
-                logger.info(
-                    f"Vector index for '{project_id}' changed on disk — reloading"
+            if col in self._ensured:
+                return col
+            if not self._client.collection_exists(col):
+                self._client.create_collection(
+                    collection_name=col,
+                    vectors_config=VectorParams(size=self.dimension, distance=Distance.EUCLID),
                 )
+                logger.info(f"Created Qdrant collection '{col}' (dim={self.dimension})")
+            self._ensured.add(col)
+            return col
 
-            if index_path.exists() and meta_path.exists():
-                # Load existing index
-                index = faiss.read_index(str(index_path))
-                with open(meta_path, 'r') as f:
-                    metadata = json.load(f)
-                self._mtimes[project_id] = index_path.stat().st_mtime
-            else:
-                index = faiss.IndexFlatL2(self.dimension)
-                metadata = []
-                self._mtimes.pop(project_id, None)
+    def ensure_index(self, project_id: str) -> None:
+        """Create an empty collection for a project so it's visible immediately."""
+        self._ensure_collection(project_id)
 
-            self._indexes[project_id] = (index, metadata)
-            return self._indexes[project_id]
-
-    def _save_index(self, project_id: str):
-        """Persist FAISS index and metadata to disk."""
-        with self._lock:
-            if project_id not in self._indexes:
-                return
-
-            index_path, meta_path = self._get_index_path(project_id)
-            index, metadata = self._indexes[project_id]
-
-            faiss.write_index(index, str(index_path))
-            with open(meta_path, 'w') as f:
-                json.dump(metadata, f)
-            self._mtimes[project_id] = index_path.stat().st_mtime
+    # ── writes ────────────────────────────────────────────────────────────────
 
     def upsert(
         self,
@@ -103,57 +117,55 @@ class VectorStoreService:
         persist: bool = True,
     ):
         """
-        Add or update a vector in the index.
+        Add or update a chunk's vector.
 
-        persist: when False, the change is kept in memory but NOT written to disk.
-        Use persist=False in a per-chunk ingestion loop and call flush(project_id)
-        once at the end — writing the whole index + metadata on every chunk is
-        quadratic I/O for large documents.
+        persist=False buffers the point in memory; call flush(project_id) once at
+        the end of an ingestion loop to send them as a single batch (cheaper than
+        one network round-trip per chunk). persist=True sends immediately,
+        including anything already buffered for the project.
 
-        Note: embeddings live ONLY inside FAISS (reconstructable via
-        index.reconstruct); duplicating them as JSON floats in metadata roughly
-        tripled the metadata file size (~30KB/chunk) for no benefit.
+        The point id is derived deterministically from (doc_id, chunk_index), so
+        re-ingesting the same chunk overwrites it rather than duplicating.
         """
-        with self._lock:
-            index, meta_list = self._load_or_create_index(project_id)
-            uid = f"{doc_id}_chunk_{chunk_index}"
+        if len(embedding) != self.dimension:
+            raise ValueError(
+                f"Embedding dimension mismatch for project '{project_id}': "
+                f"collection expects {self.dimension}, got {len(embedding)}"
+            )
 
-            embedding_array = np.array([embedding], dtype=np.float32)
-            if embedding_array.shape[1] != index.d:
-                raise ValueError(
-                    f"Embedding dimension mismatch for project '{project_id}': "
-                    f"index expects {index.d}, got {embedding_array.shape[1]}"
-                )
-
-            # Add to index
-            index.add(embedding_array)
-
-            # Track metadata (embedding intentionally NOT duplicated here)
-            meta_list.append({
+        col = self._ensure_collection(project_id)
+        uid = f"{doc_id}_chunk_{chunk_index}"
+        point = PointStruct(
+            id=str(uuid.uuid5(_ID_NAMESPACE, f"{col}:{uid}")),
+            vector=list(embedding),
+            payload={
                 "uid": uid,
                 "text": text,
                 "metadata": metadata,
-            })
-
+                # Top-level keys enable server-side filtered deletes (see delete_by_source).
+                "doc_id": doc_id,
+                "source": (metadata or {}).get("source") or doc_id,
+            },
+        )
+        with self._lock:
+            self._buffers.setdefault(project_id, []).append(point)
             if persist:
-                self._save_index(project_id)
+                self._flush_locked(project_id)
 
     def flush(self, project_id: str):
-        """Persist any in-memory changes for a project (pairs with upsert(persist=False))."""
-        self._save_index(project_id)
-
-    def ensure_index(self, project_id: str) -> None:
-        """
-        Create an (empty) index for a project and persist it to disk.
-
-        _load_or_create_index only builds the index in memory; without a disk
-        write, list_projects() — which enumerates by globbing *.index files —
-        cannot see a freshly created empty project until a document is added.
-        This makes an empty project visible immediately after creation.
-        """
+        """Send any buffered points for a project (pairs with upsert(persist=False))."""
         with self._lock:
-            self._load_or_create_index(project_id)
-            self._save_index(project_id)
+            self._flush_locked(project_id)
+
+    def _flush_locked(self, project_id: str):
+        buf = self._buffers.get(project_id)
+        if not buf:
+            return
+        col = self._ensure_collection(project_id)
+        self._client.upsert(collection_name=col, points=buf, wait=True)
+        self._buffers[project_id] = []
+
+    # ── reads ─────────────────────────────────────────────────────────────────
 
     def query(
         self,
@@ -162,150 +174,101 @@ class VectorStoreService:
         top_k: int = 5,
         where: Optional[Dict] = None,
     ) -> List[Dict]:
-        """Search for similar vectors."""
-        with self._lock:
-            index, meta_list = self._load_or_create_index(project_id)
+        """
+        Search for similar chunks. Returns [{text, metadata, score}], best-first.
 
-            if len(meta_list) == 0:
-                return []
+        ``where`` is accepted for interface compatibility but not yet applied
+        (the prior FAISS store ignored it too). Payload-filter pushdown is a
+        natural follow-up that maps directly onto Qdrant's Filter.
+        """
+        if len(query_embedding) != self.dimension:
+            raise ValueError(
+                f"Embedding dimension mismatch for project '{project_id}': "
+                f"collection expects {self.dimension}, got {len(query_embedding)}"
+            )
+        col = self._collection(project_id)
+        if not self._client.collection_exists(col):
+            return []
 
-            # Convert query embedding to numpy array
-            query_array = np.array([query_embedding], dtype=np.float32)
-            if query_array.shape[1] != index.d:
-                raise ValueError(
-                    f"Embedding dimension mismatch for project '{project_id}': "
-                    f"index expects {index.d}, got {query_array.shape[1]}"
-                )
+        resp = self._client.query_points(
+            collection_name=col,
+            query=list(query_embedding),
+            limit=top_k,
+            with_payload=True,
+        )
 
-            # Search FAISS index
-            k = min(top_k, len(meta_list))
-            distances, indices = index.search(query_array, k)
-
-        # Convert L2 distances to similarity scores
         out = []
-        for i, idx in enumerate(indices[0]):
-            if idx == -1:  # Invalid index
-                continue
-            score = 1.0 / (1.0 + distances[0][i])  # Convert L2 to similarity
-            if idx < len(meta_list):
-                meta = meta_list[idx]
-                out.append({
-                    "text": meta["text"],
-                    "metadata": meta["metadata"],
-                    "score": float(score),
-                })
-
+        for p in resp.points:
+            payload = p.payload or {}
+            # EUCLID score is a distance (smaller = closer). Convert to the same
+            # 1/(1+d) similarity the FAISS store emitted. Qdrant already returns
+            # points best-first, so relative ranking is preserved regardless.
+            distance = p.score if p.score is not None else 0.0
+            score = 1.0 / (1.0 + max(distance, 0.0))
+            out.append({
+                "text": payload.get("text", ""),
+                "metadata": payload.get("metadata", {}),
+                "score": float(score),
+            })
         return out
 
-    def delete_by_source(self, project_id: str, source: str):
-        """Remove all vectors from a specific source."""
-        with self._lock:
-            index, meta_list = self._load_or_create_index(project_id)
-
-            kept = []
-            kept_embeddings = []
-            deleted = 0
-
-            for row_idx, meta in enumerate(meta_list):
-                metadata = meta.get("metadata", {})
-                matches = (
-                    metadata.get("source") == source
-                    or metadata.get("doc_id") == source
-                    or meta.get("uid", "").startswith(f"{source}_chunk_")
-                )
-                if matches:
-                    deleted += 1
-                    continue
-
-                kept.append(meta)
-                # Embeddings are recovered from FAISS (legacy metadata may still
-                # carry an "embedding" key from older index files — used if present).
-                embedding = meta.pop("embedding", None) or metadata.get("embedding")
-                if embedding is None and row_idx < index.ntotal:
-                    try:
-                        embedding = index.reconstruct(row_idx).tolist()
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not reconstruct vector {row_idx} while deleting "
-                            f"'{source}' from project '{project_id}': {e}"
-                        )
-                if embedding is not None:
-                    kept_embeddings.append(embedding)
-
-            if deleted:
-                logger.info(
-                    f"Deleted {deleted} vectors for source/doc '{source}' in project '{project_id}'"
-                )
-                self._rebuild_index(project_id, kept, kept_embeddings, index.d)
-                self._save_index(project_id)
-
-    def _rebuild_index(
-        self,
-        project_id: str,
-        meta_list: Optional[List[Dict]] = None,
-        embeddings: Optional[List[List[float]]] = None,
-        dimension: Optional[int] = None,
-    ):
-        """Rebuild FAISS index from metadata (after deletions)."""
-        if meta_list is None:
-            current_index, meta_list = self._indexes[project_id]
-            dimension = dimension or current_index.d
-            embeddings = [
-                m.get("embedding") or m.get("metadata", {}).get("embedding")
-                for m in meta_list
-                if m.get("embedding") or m.get("metadata", {}).get("embedding")
-            ]
-        else:
-            dimension = dimension or self.dimension
-
-        new_index = faiss.IndexFlatL2(dimension)
-        if embeddings:
-            embeddings_array = np.array(embeddings, dtype=np.float32)
-            if embeddings_array.shape[1] != dimension:
-                raise ValueError(
-                    f"Cannot rebuild project '{project_id}': expected dimension "
-                    f"{dimension}, got {embeddings_array.shape[1]}"
-                )
-            new_index.add(embeddings_array)
-
-        if len(meta_list) != new_index.ntotal:
-            logger.warning(
-                f"Project '{project_id}' metadata/vector count mismatch after rebuild: "
-                f"metadata={len(meta_list)}, vectors={new_index.ntotal}"
-            )
-
-        self._indexes[project_id] = (new_index, meta_list)
-
-    def delete_collection(self, project_id: str):
-        """Delete a project's index."""
-        with self._lock:
-            index_path, meta_path = self._get_index_path(project_id)
-            try:
-                if index_path.exists():
-                    index_path.unlink()
-                if meta_path.exists():
-                    meta_path.unlink()
-                self._indexes.pop(project_id, None)
-                self._mtimes.pop(project_id, None)
-                logger.info(f"Deleted index for project '{project_id}'")
-            except Exception as e:
-                logger.warning(f"Could not delete index for project '{project_id}': {e}")
-
     def count(self, project_id: str) -> int:
-        """Get vector count for a project."""
+        """Vector count for a project (0 if the collection doesn't exist yet)."""
         try:
-            with self._lock:
-                index, meta_list = self._load_or_create_index(project_id)
-                return len(meta_list)
+            col = self._collection(project_id)
+            if not self._client.collection_exists(col):
+                return 0
+            return self._client.count(collection_name=col, exact=True).count
         except Exception as e:
             logger.warning(f"Could not count vectors for project '{project_id}': {e}")
             raise RuntimeError(f"Vector store count failed for project '{project_id}'") from e
 
     def list_projects(self) -> List[str]:
-        """List all projects (indices) in the store."""
-        projects = []
-        for path in self.persist_dir.glob("aegis_*.index"):
-            name = path.stem  # e.g., "aegis_project_name"
-            project_id = name[len("aegis_"):]
-            projects.append(project_id)
-        return projects
+        """List all Aegis projects (collections prefixed with 'aegis_')."""
+        cols = self._client.get_collections().collections
+        return [c.name[len(_PREFIX):] for c in cols if c.name.startswith(_PREFIX)]
+
+    # ── deletes ───────────────────────────────────────────────────────────────
+
+    def delete_by_source(self, project_id: str, source: str):
+        """
+        Remove all chunks belonging to a source/document.
+
+        Matches either the top-level ``doc_id`` or ``source`` payload — server-side
+        in Qdrant, so there's no read-modify-rewrite of the whole index (a big
+        simplification over the FAISS rebuild path).
+        """
+        col = self._collection(project_id)
+        if not self._client.collection_exists(col):
+            return
+        self._client.delete(
+            collection_name=col,
+            points_selector=Filter(
+                should=[
+                    FieldCondition(key="doc_id", match=MatchValue(value=source)),
+                    FieldCondition(key="source", match=MatchValue(value=source)),
+                ]
+            ),
+            wait=True,
+        )
+        logger.info(f"Deleted vectors for source/doc '{source}' in project '{project_id}'")
+
+    def delete_collection(self, project_id: str):
+        """Delete a project's entire collection."""
+        with self._lock:
+            col = self._collection(project_id)
+            try:
+                if self._client.collection_exists(col):
+                    self._client.delete_collection(collection_name=col)
+                self._ensured.discard(col)
+                self._buffers.pop(project_id, None)
+                logger.info(f"Deleted collection for project '{project_id}'")
+            except Exception as e:
+                logger.warning(f"Could not delete collection for project '{project_id}': {e}")
+
+    def close(self):
+        """Release the underlying client (embedded mode holds a storage lock)."""
+        try:
+            self._client.close()
+        except Exception:
+            pass

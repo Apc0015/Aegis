@@ -15,6 +15,7 @@ build/
 .ruff_cache/
 
 # ── Runtime data (generated at runtime, not source code) ─────────────────────
+data/qdrant/
 data/faiss/
 data/bm25/
 data/audit/

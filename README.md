@@ -37,7 +37,7 @@ asker is cleared for. Three guarantees:
 
 ## Features
 
-- **Hybrid RAG pipeline** — FAISS vector search + BM25 keyword search with optional reranking
+- **Hybrid RAG pipeline** — Qdrant vector search + BM25 keyword search with optional reranking
 - **Data firewall** — blocks columns, anonymizes PII, and enforces access rules *before* the LLM sees any data
 - **Role-based access control** — `employee / manager / admin` with document-category, row-level, and column-level rules
 - **Database query agent** — auto-generates read-only SQL with row- and column-level filtering enforced by RBAC
@@ -137,7 +137,7 @@ python scripts/seed_medical_database.py
 python scripts/index_knowledge_base.py --embed-provider local
 ```
 
-Builds FAISS + BM25 indexes from `documents/`. Add your own files to any subfolder
+Builds Qdrant + BM25 indexes from `documents/`. Add your own files to any subfolder
 and re-run.
 
 ### 5. Start the backend
@@ -178,7 +178,7 @@ User Query (Web console)
    │  R2 rewrite →                 │
    │  ┌──────────┬──────────┐      │
    │  │ RAG path │  DB path │      │
-   │  │ FAISS+   │ read-only│      │
+   │  │ Qdrant+  │ read-only│      │
    │  │ BM25     │ SQL+RBAC │      │
    │  └────┬─────┴─────┬────┘      │
    │       └─────┬─────┘           │
@@ -247,7 +247,7 @@ Role capabilities and department scoping live in `src/aegis/config.py`
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI, Python 3.10+ |
-| Vector search | FAISS (cpu), sentence-transformers |
+| Vector search | Qdrant (embedded or server), sentence-transformers |
 | Keyword search | BM25 (rank-bm25, bm25s) |
 | LLMs | OpenAI, Anthropic, Groq, OpenRouter, Gemini, Ollama, LM Studio |
 | Embeddings | OpenAI `text-embedding-3-small`, local `all-MiniLM-L6-v2`, Ollama |

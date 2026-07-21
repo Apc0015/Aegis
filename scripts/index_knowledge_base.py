@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Index all documents in documents/ into FAISS + BM25 indexes.
+Index all documents in documents/ into Qdrant + BM25 indexes.
 
 Usage:
     python scripts/index_knowledge_base.py [--embed-provider local|openai|ollama] [--api-key KEY]
@@ -44,7 +44,7 @@ async def index_all(embed_provider: str, api_key: str):
 
     emb = EmbeddingService(provider=embed_provider, api_key=api_key or None)
     vs = VectorStoreService(
-        persist_dir=str(ROOT / "data" / "faiss"),
+        persist_dir=str(ROOT / "data" / "qdrant"),
         dimension=emb.dimensions,
     )
     bm25 = BM25Engine(storage_dir=str(ROOT / "data" / "bm25"))
@@ -104,7 +104,7 @@ async def index_all(embed_provider: str, api_key: str):
                 log.error(f"  Embedding failed for {filepath.name}: {e}")
                 continue
 
-            # Add to FAISS
+            # Add to the vector store (Qdrant)
             for i, (chunk_text, meta, embedding) in enumerate(zip(chunks, metadatas, embeddings)):
                 vs.upsert(
                     project_id=project_id,
@@ -127,7 +127,7 @@ async def index_all(embed_provider: str, api_key: str):
 
     log.info(f"\n{'='*50}")
     log.info(f"Done. {total_docs} documents, {total_chunks} total chunks indexed.")
-    log.info(f"FAISS indexes: {ROOT / 'data' / 'faiss'}")
+    log.info(f"Qdrant store: {os.getenv('AEGIS_QDRANT_URL') or (ROOT / 'data' / 'qdrant')}")
     log.info(f"BM25  indexes: {ROOT / 'data' / 'bm25'}")
 
 

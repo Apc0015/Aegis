@@ -23,6 +23,7 @@ aegis_web/node_modules
 aegis_web/dist
 
 # Regenerated at runtime (entrypoint rebuilds these on first boot)
+data/qdrant
 data/faiss
 data/bm25
 data/audit

@@ -101,26 +101,43 @@ def _run_startup_checks(provider: str, api_key: str, embed_prov: str) -> None:
         logger.warning(f"[STARTUP] {w}")
 
 
-def _cleanup_orphaned_session_indexes() -> None:
+def _cleanup_orphaned_session_bm25() -> None:
     """
-    Delete leftover per-session file indexes from previous runs.
+    Delete leftover per-session BM25 index files from previous runs.
 
     Session indexes are registered only in memory (SessionFileStore); after a
-    restart nothing remembers them, so their FAISS/BM25 files would accumulate
-    on disk forever. They are ephemeral by definition — safe to remove at boot.
+    restart nothing remembers them, so their files would accumulate forever.
+    They are ephemeral by definition — safe to remove at boot. (The vector side
+    lives in Qdrant now — see _cleanup_orphaned_session_collections.)
     """
     removed = 0
-    for pattern, base in (("aegis__session_*", Path("data/faiss")), ("_session_*", Path("data/bm25"))):
-        if not base.exists():
-            continue
-        for p in base.glob(pattern):
+    base = Path("data/bm25")
+    if base.exists():
+        for p in base.glob("_session_*"):
             try:
                 p.unlink()
                 removed += 1
             except OSError as e:
-                logger.warning(f"[STARTUP] could not remove orphaned session index {p}: {e}")
+                logger.warning(f"[STARTUP] could not remove orphaned session bm25 index {p}: {e}")
     if removed:
-        logger.info(f"[STARTUP] removed {removed} orphaned session index file(s)")
+        logger.info(f"[STARTUP] removed {removed} orphaned session bm25 file(s)")
+
+
+def _cleanup_orphaned_session_collections(vector_store) -> None:
+    """
+    Drop leftover per-session Qdrant collections (project ids starting with
+    '_session_') from previous runs. Same rationale as the BM25 cleanup above.
+    """
+    removed = 0
+    try:
+        for pid in vector_store.list_projects():
+            if pid.startswith("_session_"):
+                vector_store.delete_collection(pid)
+                removed += 1
+    except Exception as e:
+        logger.warning(f"[STARTUP] could not clean orphaned session collections: {e}")
+    if removed:
+        logger.info(f"[STARTUP] removed {removed} orphaned session collection(s)")
 
 
 @asynccontextmanager
@@ -129,7 +146,7 @@ async def lifespan(app: FastAPI):
     from aegis.factory import build_agent
     from api.dependencies import set_agent
 
-    _cleanup_orphaned_session_indexes()
+    _cleanup_orphaned_session_bm25()
 
     provider   = os.getenv("AEGIS_LLM_PROVIDER",  os.getenv("AEGIS_MAIN_PROVIDER", "openai"))
     model      = os.getenv("AEGIS_MAIN_MODEL",     "gpt-4o-mini")
@@ -159,6 +176,9 @@ async def lifespan(app: FastAPI):
     )
     set_agent(agent)
     logger.info("Aegis agent initialized successfully")
+
+    # Vector session cleanup needs the built agent's Qdrant-backed store.
+    _cleanup_orphaned_session_collections(agent.r3.vector)
 
     from aegis.connectors.connector_manager import ConnectorManager
     from api.routers.documents import _ingest_file
