@@ -110,7 +110,7 @@ def _cleanup_orphaned_session_indexes() -> None:
     on disk forever. They are ephemeral by definition — safe to remove at boot.
     """
     removed = 0
-    for pattern, base in (("rapid__session_*", Path("data/faiss")), ("_session_*", Path("data/bm25"))):
+    for pattern, base in (("aegis__session_*", Path("data/faiss")), ("_session_*", Path("data/bm25"))):
         if not base.exists():
             continue
         for p in base.glob(pattern):
@@ -183,7 +183,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Aegis API",
-    description="RAG Application for Private Instant Deployment — enterprise RAG with RBAC and data firewall",
+    description="Governed enterprise RAG — ask your company's data, see only what you're allowed to. Role-based access control and a data firewall on every answer.",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/api/docs",

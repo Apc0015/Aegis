@@ -5,6 +5,7 @@
 # Purpose: Populate database with 500 employees and realistic sample data
 # ============================================================================
 
+import os
 import sys
 import random
 from datetime import datetime, date, timedelta
@@ -119,7 +120,8 @@ def seed_database():
     Seed the medical company database with realistic sample data
     """
     print("=" * 80)
-    print("MEDICAL COMPANY DATABASE SEEDING")
+    print("AEGIS — SAMPLE DATASET SEEDING")
+    print("Fictional 500-employee healthcare company · demo / evaluation data only")
     print("=" * 80)
     
     # Create session
@@ -454,10 +456,11 @@ def seed_database():
         # ====================================================================
         # FINAL REPORT
         # ====================================================================
+        db_path = os.getenv("AEGIS_DB_PATH", "data/medical_company.db")
         print("\n" + "=" * 80)
-        print("DATABASE SEEDING COMPLETE!")
+        print("SAMPLE DATABASE SEEDING COMPLETE")
         print("=" * 80)
-        print(f"\nSummary:")
+        print(f"\nSummary (all fictional — no real people or PHI):")
         print(f"  ✓ Locations: {len(locations)}")
         print(f"  ✓ Departments: {len(departments)}")
         print(f"  ✓ Teams: {total_teams}")
@@ -466,7 +469,9 @@ def seed_database():
         print(f"  ✓ Appointments: {appt_count}")
         print(f"  ✓ Medical Records: {record_count}")
         print(f"  ✓ Prescriptions: {rx_count}")
-        print(f"\nDatabase Location: /Users/apc/Study/Projects/Working/Aegis/data/medical_company.db")
+        print(f"\nDatabase location: {db_path}")
+        print("This is bundled DEMO data. In a real deployment, connect your own")
+        print("sources and set AEGIS_DEMO_MODE=false to hide the sample-data notice.")
         print("=" * 80)
         
         return True

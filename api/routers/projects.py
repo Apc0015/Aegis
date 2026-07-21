@@ -38,7 +38,7 @@ async def list_projects(
     current_user: UserInfo = Depends(get_current_user),
     agent = Depends(get_agent),
 ):
-    """Return all projects (FAISS indexes prefixed with 'rapid_')."""
+    """Return all projects (FAISS indexes prefixed with 'aegis_')."""
     try:
         project_ids = agent.r3.vector.list_projects()
     except Exception as e:
@@ -50,7 +50,7 @@ async def list_projects(
         results.append(ProjectInfo(
             project_id=project_id,
             project_name=project_id.replace("_", " ").title(),
-            collection_name=f"rapid_{project_id}",
+            collection_name=f"aegis_{project_id}",
         ))
     return results
 
@@ -82,7 +82,7 @@ async def create_project(
         logger.error(f"Failed to create project '{project_id}': {e}")
         raise HTTPException(status_code=500, detail="Could not create project")
 
-    collection_name = f"rapid_{project_id}".replace("-", "_")[:63]
+    collection_name = f"aegis_{project_id}".replace("-", "_")[:63]
     return ProjectInfo(
         project_id=project_id,
         project_name=req.name.strip(),

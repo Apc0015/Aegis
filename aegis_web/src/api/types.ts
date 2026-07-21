@@ -110,6 +110,7 @@ export interface HealthStatus {
   embed_provider: string;
   db_connected: boolean;
   vector_store_ok: boolean;
+  demo_mode: boolean;
   message: string;
 }
 

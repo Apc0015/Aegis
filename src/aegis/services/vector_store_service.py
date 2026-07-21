@@ -43,8 +43,8 @@ class VectorStoreService:
             raise ValueError(f"Unsafe project_id for vector store: {project_id!r}")
         safe_id = project_id.replace("-", "_")[:63]
         return (
-            self.persist_dir / f"rapid_{safe_id}.index",
-            self.persist_dir / f"rapid_{safe_id}_meta.json",
+            self.persist_dir / f"aegis_{safe_id}.index",
+            self.persist_dir / f"aegis_{safe_id}_meta.json",
         )
 
     def _load_or_create_index(self, project_id: str):
@@ -304,8 +304,8 @@ class VectorStoreService:
     def list_projects(self) -> List[str]:
         """List all projects (indices) in the store."""
         projects = []
-        for path in self.persist_dir.glob("rapid_*.index"):
-            name = path.stem  # e.g., "rapid_project_name"
-            project_id = name[len("rapid_"):]
+        for path in self.persist_dir.glob("aegis_*.index"):
+            name = path.stem  # e.g., "aegis_project_name"
+            project_id = name[len("aegis_"):]
             projects.append(project_id)
         return projects

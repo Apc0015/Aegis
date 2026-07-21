@@ -1,0 +1,51 @@
+name: CI
+
+# Governance is a release gate: no change lands on main without the RBAC /
+# data-firewall test suite passing. The "Governance & security gate" step below
+# is the security-critical, dependency-light subset and must stay green.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Governance & security gate (RBAC + data firewall)
+        # Deterministic, no model downloads — this is the required security gate.
+        run: |
+          pytest -q \
+            tests/unit/test_rbac.py \
+            tests/unit/test_rbac_edge_cases.py \
+            tests/unit/test_security_fixes.py \
+            tests/unit/test_query_schema.py
+
+      - name: Full unit suite
+        run: pytest -q tests/unit/

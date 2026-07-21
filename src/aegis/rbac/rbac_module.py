@@ -126,11 +126,20 @@ class RBACModule:
 
         Admin is unrestricted — the RBAC department allow-list is intentionally not
         exhaustive of every routable department, so admins bypass the filter entirely.
-        Every non-admin role is limited to its configured departments (plus 'general',
-        which is always readable).
+        Every *recognized* non-admin role is limited to its configured departments
+        (plus 'general', which is always readable for known roles).
+
+        SECURITY — fail closed on unrecognized roles. A role that is not admin and
+        not defined in RBAC_ROLES gets nothing, not even 'general'. Otherwise a bad
+        or unknown role string would inherit blanket read access to public content
+        purely because 'general' was unioned in unconditionally.
         """
         if user_role == "admin":
             return list(requested_departments), []
+
+        if user_role not in self.roles:
+            # Unknown role → deny every requested department.
+            return [], list(requested_departments)
 
         permitted = set(self.get_permitted_departments(user_role)) | {"general"}
         allowed = [d for d in requested_departments if d in permitted]

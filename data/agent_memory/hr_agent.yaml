@@ -1,9 +1,9 @@
 capabilities: []
 collaboration_history: []
 experience:
-  high_confidence_count: 1
-  medium_confidence_count: 1
-  total_queries: 2
+  high_confidence_count: 0
+  medium_confidence_count: 0
+  total_queries: 0
 identity:
   agent_id: hr_agent
   created_at: 1774634771.2116868
@@ -13,8 +13,4 @@ identity:
   version: '1.0'
 learned_patterns: []
 mistakes_to_avoid: []
-recent_learnings:
-- 'Q: What is the annual leave policy and how many days are employees entitled to?
-  | verdict=high | chunks=2 | path=direct'
-- 'Q: What salary does a senior grade 3 employee earn? | verdict=medium | chunks=0
-  | path=disclaimer'
+recent_learnings: []

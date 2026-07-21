@@ -2,7 +2,7 @@
 Shared input-validation helpers for Aegis.
 
 `project_id` flows from untrusted clients straight into filesystem paths
-(``data/faiss/rapid_<id>.index``, ``data/bm25/<id>.pkl``) and BM25 files are
+(``data/faiss/aegis_<id>.index``, ``data/bm25/<id>.pkl``) and BM25 files are
 loaded with ``pickle.load`` — so an unsanitized id is both a path-traversal and
 an arbitrary-deserialization vector. Every router that accepts a project_id must
 route it through ``sanitize_project_id`` before it reaches a service.

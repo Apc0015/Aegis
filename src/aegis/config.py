@@ -278,7 +278,7 @@ INTERNAL_QUERY_SIGNALS = [
 ]
 
 APP_TITLE = "Aegis"
-APP_SUBTITLE = "RAG Application for Private Instant Deployment"
+APP_SUBTITLE = "Ask your company's data. See only what you're allowed to."
 APP_VERSION = "1.0.0"
 MAX_FILE_SIZE_MB = 50
 SUPPORTED_FILE_TYPES = ["pdf", "docx", "txt", "md"]

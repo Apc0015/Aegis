@@ -1,0 +1,36 @@
+# VCS / tooling
+.git
+.github
+.claude
+.code-review-graph
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Python envs / caches
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+
+# Secrets — never bake into an image
+.env
+
+# Node (frontend has its own build context/Dockerfile)
+aegis_web/node_modules
+aegis_web/dist
+
+# Regenerated at runtime (entrypoint rebuilds these on first boot)
+data/faiss
+data/bm25
+data/audit
+data/user_memory
+data/connector_tokens
+data/connector_state.json
+
+# macOS / editors
+**/.DS_Store
+.vscode
+.idea

@@ -1,0 +1,43 @@
+name: aegis
+
+# Governed enterprise RAG — full stack in two containers.
+#   web (nginx, :8080)  ──/api──▶  api (FastAPI, :8000)
+#
+# First run: `cp .env.example .env`, add your LLM key, then `docker compose up`.
+# The api container seeds the sample database and builds indexes on first boot.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aegis-api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AEGIS_DB_TYPE: sqlite
+      AEGIS_DB_PATH: data/medical_company.db
+      AEGIS_EMBED_PROVIDER: ${AEGIS_EMBED_PROVIDER:-local}
+      AEGIS_DEMO_MODE: ${AEGIS_DEMO_MODE:-true}
+    volumes:
+      - aegis-data:/app/data
+      - aegis-hf-cache:/app/.cache/huggingface
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./aegis_web
+      dockerfile: Dockerfile
+    image: aegis-web
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  aegis-data:
+  aegis-hf-cache:

@@ -51,8 +51,11 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-[26rem] animate-fade-up">
-        <div className="mb-8 flex justify-center">
+        <div className="mb-8 flex flex-col items-center gap-3">
           <AegisLogo className="scale-110" />
+          <p className="max-w-[22rem] text-center text-[0.8125rem] leading-relaxed text-ink-muted">
+            Ask your company's data. See only what you're allowed to.
+          </p>
         </div>
 
         <div className="relative overflow-hidden rounded-xl border border-border bg-card">

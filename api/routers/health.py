@@ -4,6 +4,7 @@ Health check endpoint.
 GET /api/v1/health — returns service status
 """
 import logging
+import os
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -14,6 +15,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/health", tags=["health"])
 
 
+def _demo_mode() -> bool:
+    """
+    True when Aegis is running against the bundled sample dataset.
+
+    Controls the "sample data" onboarding notice in the console. Defaults to
+    True so a fresh clone/evaluation is always clearly labelled; a real
+    deployment sets AEGIS_DEMO_MODE=false once its own sources are connected.
+    """
+    return os.getenv("AEGIS_DEMO_MODE", "true").strip().lower() in ("1", "true", "yes", "on")
+
+
 class HealthStatus(BaseModel):
     status: str           # "ok" | "degraded" | "error"
     version: str
@@ -22,6 +34,7 @@ class HealthStatus(BaseModel):
     embed_provider: str
     db_connected: bool
     vector_store_ok: bool
+    demo_mode: bool = True
     message: str = ""
 
 
@@ -66,5 +79,6 @@ async def health_check(
         embed_provider=agent.r3.embeddings.provider,
         db_connected=db_ok,
         vector_store_ok=vector_ok,
+        demo_mode=_demo_mode(),
         message="; ".join(issues) if issues else "All systems operational",
     )

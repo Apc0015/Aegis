@@ -29,8 +29,24 @@ _SCHEMA_CACHE: str = ""
 def get_readonly_connection():
     """
     Returns a read-only DB connection based on AEGIS_DB_TYPE.
-    SQLite  → built-in sqlite3 (mode=ro URI).
-    Postgres/MySQL → SQLAlchemy connection (requires sqlalchemy + driver installed).
+
+    SQLite  → built-in sqlite3 opened with the ``mode=ro`` URI. This is enforced
+              by the operating system / SQLite itself: any write raises
+              "attempt to write a readonly database". SQLite is the *validated*
+              backend for v1 and backs the bundled sample database.
+    Postgres → SQLAlchemy connection with ``default_transaction_read_only=on``,
+               so the server rejects writes for the whole session.
+    MySQL    → SQLAlchemy connection with an explicit ``SET SESSION TRANSACTION
+               READ ONLY`` (there is no connect-arg equivalent), so writes are
+               rejected server-side.
+
+    Read-only is enforced at the connection layer for every backend so a write
+    can never reach the company database — the SQL keyword validator
+    (``_is_safe_readonly_select``) is defence-in-depth on top of this, not the
+    only line of defence.
+
+    NOTE: Postgres/MySQL support is experimental — the read-only intent below is
+    correct, but only SQLite has been validated end-to-end for v1. See README.
     """
     if DB_TYPE == "sqlite":
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -49,13 +65,58 @@ def get_readonly_connection():
                 "AEGIS_DB_URL must be set for Postgres/MySQL. "
                 "Example: postgresql://user:pass@localhost:5432/mydb"
             )
-        engine = create_engine(DB_URL, connect_args={"options": "-c default_transaction_read_only=on"}
-                               if "postgres" in DB_TYPE else {})
-        return engine.connect()
+        if "postgres" in DB_TYPE:
+            engine = create_engine(
+                DB_URL,
+                connect_args={"options": "-c default_transaction_read_only=on"},
+            )
+            return engine.connect()
+
+        # MySQL: no connect-arg for read-only — set it on the session, fail closed
+        # if the server refuses (never hand back a writable connection).
+        engine = create_engine(DB_URL)
+        conn = engine.connect()
+        try:
+            conn.execute(sa_text("SET SESSION TRANSACTION READ ONLY"))
+        except Exception as e:
+            conn.close()
+            raise RuntimeError(f"Could not enforce MySQL read-only session: {e}")
+        return conn
 
     raise RuntimeError(
         f"Unknown AEGIS_DB_TYPE='{DB_TYPE}'. Supported: sqlite | postgres | mysql"
     )
+
+
+def _is_safe_readonly_select(sql: str) -> tuple:
+    """
+    Validate that a (LLM-generated) SQL string is a single, read-only SELECT.
+
+    Fail-closed: returns ``(False, reason)`` on anything ambiguous. This closes
+    three bypasses beyond a naive keyword scan:
+
+      * stacked statements  — ``SELECT 1; SELECT * FROM patient_pii`` (a second
+        statement with no write keyword) is rejected outright.
+      * non-SELECT leads    — only a statement beginning with ``select`` runs.
+      * write keywords      — INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE/
+        REPLACE/MERGE anywhere in the text (word-boundary matched) is rejected.
+
+    Returns (ok, reason).
+    """
+    s = (sql or "").strip()
+    # A single trailing semicolon is fine; anything after it is a 2nd statement.
+    s = s.rstrip(";").strip()
+    if not s:
+        return False, "empty statement"
+    if ";" in s:
+        return False, "multiple statements are not allowed"
+    lowered = s.lower()
+    if not lowered.startswith("select"):
+        return False, "only SELECT statements are allowed"
+    for forbidden in _FORBIDDEN_SQL_KEYWORDS:
+        if re.search(rf"\b{re.escape(forbidden)}\b", lowered):
+            return False, f"forbidden keyword '{forbidden}'"
+    return True, ""
 
 
 def introspect_schema() -> str:
@@ -409,15 +470,11 @@ async def run_text_to_sql(query: str, column_rules: dict, llm_service, user_id: 
 
     logger.info(f"Text-to-SQL generated: {sql[:200]}")
 
-    # 3. Validate — reject any write operations
+    # 3. Validate — single, read-only SELECT only (fail-closed on anything else)
     sql_lower = sql.lower()
-    for forbidden in _FORBIDDEN_SQL_KEYWORDS:
-        if re.search(rf"\b{re.escape(forbidden)}\b", sql_lower):
-            logger.warning(f"Text-to-SQL generated forbidden keyword '{forbidden}' — rejected")
-            return results
-
-    if not sql_lower.strip().startswith("select"):
-        logger.warning("Text-to-SQL did not produce a SELECT statement — rejected")
+    ok, reason = _is_safe_readonly_select(sql)
+    if not ok:
+        logger.warning(f"Text-to-SQL rejected ({reason}): {sql[:200]}")
         return results
 
     # 4. Execute

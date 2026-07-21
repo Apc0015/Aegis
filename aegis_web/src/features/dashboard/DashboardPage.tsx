@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Activity, ArrowRight, MessageSquare, FileText } from "lucide-react";
+import { Activity, ArrowRight, MessageSquare, FileText, FlaskConical } from "lucide-react";
 import { getHealth, getAuditLog, listProjects } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthContext";
 import { Card } from "@/components/ui/card";
@@ -49,6 +49,20 @@ export function DashboardPage() {
         title="Dashboard"
         description={`Welcome back, ${user?.userId}.`}
       />
+
+      {/* Sample-data notice — shown only while running on the bundled demo dataset */}
+      {h?.demo_mode && (
+        <div className="flex items-start gap-3 rounded-lg border border-accent/25 bg-accent/[0.06] px-4 py-3">
+          <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+          <div className="min-w-0 text-[0.8125rem] leading-relaxed text-ink-muted">
+            <span className="font-medium text-ink">Sample data.</span>{" "}
+            You're exploring Aegis with a bundled demo dataset — a fictional
+            healthcare company (employees, payroll, patients, HIPAA logs). Query
+            it freely; the data firewall still governs every answer by your role.
+            Connect your own sources to replace it.
+          </div>
+        </div>
+      )}
 
       {/* System status panel */}
       <Card>

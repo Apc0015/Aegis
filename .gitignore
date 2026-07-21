@@ -26,6 +26,11 @@ data/projects.json
 data/settings.json
 data/connector_tokens/
 data/connector_state.json
+data/user_memory/
+# Ephemeral per-run domain-prototype caches (the R1 classifier rebuilds these).
+# The curated demo prototypes (example/hr/medical_evaluation) stay tracked.
+data/domain_prototypes/test_*.json
+data/domain_prototypes/*session*.json
 
 # Agent memory is source-controlled (intentional YAML scaffolds)
 # data/agent_memory/  ← NOT gitignored
