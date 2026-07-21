@@ -45,7 +45,13 @@ jobs:
             tests/unit/test_rbac.py \
             tests/unit/test_rbac_edge_cases.py \
             tests/unit/test_security_fixes.py \
+            tests/unit/test_prompt_guard.py \
             tests/unit/test_query_schema.py
+
+      - name: Governance evals (deterministic, no LLM)
+        # Data-driven governance scenarios run against the real enforcement code.
+        # A failure means a "must never leak / must route this way" guarantee broke.
+        run: python evals/run_evals.py
 
       - name: Full unit suite
         run: pytest -q tests/unit/

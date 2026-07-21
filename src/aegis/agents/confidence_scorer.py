@@ -46,6 +46,37 @@ class ConfidenceResult:
     columns_blocked: list = None     # Columns blocked by access rules
 
 
+def decide_route(
+    score: float,
+    confidence_high: float,
+    confidence_medium: float,
+    is_external: bool,
+) -> tuple:
+    """
+    Pure routing rule from a composite confidence score. Extracted from score() so
+    it can be evaluated deterministically (no LLM). Returns (verdict, should_refuse).
+
+      score >= high            → ("high",   False)
+      high > score >= medium   → ("medium", False)
+      score < medium, internal → ("low",    True)   # refuse — don't guess on our data
+      score < medium, external → ("low",    False)  # allow web fallback
+    """
+    if score >= confidence_high:
+        return "high", False
+    if score >= confidence_medium:
+        return "medium", False
+    return "low", (not is_external)
+
+
+def route_label(verdict: str, should_refuse: bool, is_external: bool) -> str:
+    """Map a scoring outcome to the user-facing routing path."""
+    if verdict == "high":
+        return "direct"
+    if verdict == "medium":
+        return "disclaimer"
+    return "refuse" if should_refuse else "web"
+
+
 class ConfidenceScorer:
     """
     Args:
@@ -187,13 +218,7 @@ class ConfidenceScorer:
 
         is_external = self._is_external(query)
 
-        if score >= confidence_high:
-            verdict, refuse = "high", False
-        elif score >= confidence_medium:
-            verdict, refuse = "medium", False
-        else:
-            verdict = "low"
-            refuse  = not is_external  # internal low-conf → refuse; external → web fallback
+        verdict, refuse = decide_route(score, confidence_high, confidence_medium, is_external)
 
         return ConfidenceResult(
             score=round(score, 3),
